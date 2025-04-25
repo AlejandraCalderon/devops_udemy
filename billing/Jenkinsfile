@@ -1,0 +1,107 @@
+pipeline {
+    agent any
+
+    environment {
+        DOCKER_IMAGE = 'aleja254/devops-udemy-app'
+        DOCKER_TAG = "${env.BUILD_NUMBER}"
+        JAR_SOURCE_PATH = '/var/jenkins_home/.m2/repository/com/paymentchain/billing/0.0.1/billing-0.0.1.jar'
+        JAR_NAME = 'app.jar'
+        DOCKERHUB_CREDENTIALS = credentials('dockerhub-creds') // asegúrate que este ID sea igual al configurado
+        DOCKER_HOST = 'tcp://192.168.1.141:2375'
+    }
+
+    stages {
+        stage('Clonar repositorio') {
+            steps {
+                git 'https://github.com/AlejandraCalderon/devops_udemy.git'
+            }
+        }
+
+        stage('Verificar herramientas') {
+            steps {
+                script {
+                    env.DOCKER_HOST = "${DOCKER_HOST}"
+                    sh 'docker --version'
+                }
+            }
+        }
+
+        stage('Verificar credenciales Docker Hub') {
+            steps {
+                script {
+                    if (!DOCKERHUB_CREDENTIALS) {
+                        error "No se pueden encontrar las credenciales de Docker Hub."
+                    }
+                }
+            }
+        }
+
+        stage('Copiar JAR al Workspace') {
+            steps {
+                script {
+                    if (!fileExists(JAR_SOURCE_PATH)) {
+                        error "No se encontró el archivo JAR en la ruta: ${JAR_SOURCE_PATH}"
+                    } else {
+                        sh "cp ${JAR_SOURCE_PATH} ${WORKSPACE}/${JAR_NAME}"
+                        echo "JAR copiado correctamente."
+                    }
+                }
+            }
+        }
+
+        stage('Crear Dockerfile') {
+            steps {
+                script {
+                    def jarHash = sh(returnStdout: true, script: "shasum -a 256 ${JAR_NAME} | cut -d' ' -f1").trim()
+
+                    writeFile file: 'Dockerfile', text: """
+                        FROM eclipse-temurin:17-alpine
+                        COPY ${JAR_NAME} /app.jar
+                        EXPOSE 8080
+                        ENTRYPOINT ["java","-jar","/app.jar"]
+                    """.stripIndent()
+
+                    env.DOCKER_TAG_HASH = "${DOCKER_IMAGE}:${DOCKER_TAG}-${jarHash}"
+                }
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                sh '''
+                    DOCKER_HOST=${DOCKER_HOST} docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} .
+                    DOCKER_HOST=${DOCKER_HOST} docker tag ${DOCKER_IMAGE}:${DOCKER_TAG} ${DOCKER_IMAGE}:latest
+                    DOCKER_HOST=${DOCKER_HOST} docker tag ${DOCKER_IMAGE}:${DOCKER_TAG} ${DOCKER_TAG_HASH}
+                '''
+            }
+        }
+
+        stage('Push a Docker Hub') {
+            steps {
+                sh '''
+                    echo "${DOCKERHUB_CREDENTIALS_PSW}" | DOCKER_HOST=${DOCKER_HOST} docker login -u "${DOCKERHUB_CREDENTIALS_USR}" --password-stdin
+                    DOCKER_HOST=${DOCKER_HOST} docker push ${DOCKER_IMAGE}:${DOCKER_TAG}
+                    DOCKER_HOST=${DOCKER_HOST} docker push ${DOCKER_IMAGE}:latest
+                    DOCKER_HOST=${DOCKER_HOST} docker push ${DOCKER_TAG_HASH}
+                    DOCKER_HOST=${DOCKER_HOST} docker logout
+                '''
+            }
+        }
+    }
+
+    post {
+        success {
+            echo '✅ Imagen Docker construida y publicada exitosamente!'
+        }
+        failure {
+            echo '❌ Falló la construcción o publicación de la imagen Docker.'
+        }
+        always {
+            sh '''
+                DOCKER_HOST=${DOCKER_HOST} docker image prune -f
+                rm -f ${JAR_NAME} Dockerfile
+                DOCKER_HOST=${DOCKER_HOST} docker logout || true
+            '''
+        }
+    }
+}
