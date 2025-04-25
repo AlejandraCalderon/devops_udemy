@@ -1,6 +1,10 @@
 FROM eclipse-temurin:17-alpine
 
-COPY app.jar /app.jar
+# Argumento para el archivo JAR
+ARG JAR_FILE
+
+# Copia el JAR específico al contenedor
+COPY ${JAR_FILE} app.jar
 
 EXPOSE 8080
 

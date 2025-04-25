@@ -2,78 +2,66 @@ pipeline {
     agent any
     
     tools {
-        // Usa el nombre exacto que configuraste en Jenkins (Global Tool Configuration)
-        maven 'maven'  // Este debe coincidir con el nombre que pusiste en la configuración
+        maven 'maven'
     }
     
     environment {
-        // Configuración de Docker
         DOCKER_IMAGE = "aleja254/devops_udemy_billing"
-        DOCKER_REGISTRY = "docker.io"
-        
-        // Configuración del proyecto (ajusta según tu proyecto)
         PROJECT_VERSION = "1.0.0"
+        PROJECT_DIR = "billing"  // Nuevo: directorio donde está el proyecto Maven
     }
 
     stages {
-        // Stage 1: Checkout del código desde Git
         stage('Checkout SCM') {
             steps {
                 checkout([
                     $class: 'GitSCM',
                     branches: [[name: '*/master']],
                     userRemoteConfigs: [[
-                        credentialsId: 'github_creds',  // Usa el ID de tus credenciales configuradas
+                        credentialsId: 'github_creds',
                         url: 'https://github.com/AlejandraCalderon/devops_udemy.git'
-                    ]],
-                    extensions: [],
-                    doGenerateSubmoduleConfigurations: false
+                    ]]
                 ])
             }
         }
 
-        // Stage 2: Build del JAR con Maven
         stage('Build JAR') {
             steps {
-                bat 'mvn --version'  // Para verificar que Maven está disponible
-                bat 'mvn clean package -DskipTests'
-                
-                // Opcional: Archivar el JAR para usarlo después
-                archiveArtifacts artifacts: 'target/*.jar', fingerprint: true
-            }
-        }
-
-        // Stage 3: Build de la imagen Docker
-        stage('Build Docker Image') {
-            steps {
-                script {
-                    // Verifica que Docker está instalado
-                    bat 'docker --version'
-                    
-                    // Construye la imagen Docker
-                    dockerImage = docker.build("${DOCKER_IMAGE}:${PROJECT_VERSION}")
+                dir(env.PROJECT_DIR) {  // Cambia al directorio del proyecto
+                    bat 'mvn --version'
+                    bat 'mvn clean package -DskipTests'
+                    archiveArtifacts artifacts: 'target/*.jar', fingerprint: true
                 }
             }
         }
 
-        // Stage 4: Push a Docker Hub
+        stage('Build Docker Image') {
+            steps {
+                script {
+                    dir(env.PROJECT_DIR) {
+                        // Verifica que el JAR fue creado
+                        bat 'dir target\\'
+                        
+                        // Construye la imagen Docker
+                        dockerImage = docker.build("${env.DOCKER_IMAGE}:${env.PROJECT_VERSION}", "--build-arg JAR_FILE=target/*.jar .")
+                    }
+                }
+            }
+        }
+
         stage('Push to Docker Hub') {
             steps {
                 withCredentials([usernamePassword(
-                    credentialsId: 'dockerhub-creds',  // ID de tus credenciales de Docker Hub
+                    credentialsId: 'dockerhub-creds',
                     usernameVariable: 'DOCKER_HUB_USER',
                     passwordVariable: 'DOCKER_HUB_PASS'
                 )]) {
                     script {
-                        // Login a Docker Hub
                         bat "docker login -u ${env.DOCKER_HUB_USER} -p ${env.DOCKER_HUB_PASS}"
-                        
-                        // Push de la imagen
-                        dockerImage.push("${PROJECT_VERSION}")
-                        dockerImage.push("latest")
-                        
-                        // Opcional: Limpiar imágenes locales
-                        bat 'docker image prune -f'
+                        docker.withRegistry('https://index.docker.io/v1/', 'dockerhub-creds') {
+                            dockerImage.push("${env.PROJECT_VERSION}")
+                            dockerImage.push("latest")
+                        }
                     }
                 }
             }
@@ -83,16 +71,13 @@ pipeline {
     post {
         always {
             echo '✔️ Pipeline finalizado'
-            // Opcional: Limpiar workspace
             cleanWs()
         }
         success {
             echo '✅ ¡Pipeline ejecutado con éxito!'
-            // Puedes agregar notificaciones aquí (email, Slack, etc.)
         }
         failure {
             echo '❌ Falló la construcción o publicación'
-            // Puedes agregar notificaciones de error aquí
         }
     }
 }
