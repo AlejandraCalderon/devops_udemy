@@ -8,13 +8,15 @@ pipeline {
     stages {
         stage('Build JAR') {
             steps {
-                sh 'mvn clean package -DskipTests'
+                // Cambiar 'sh' por 'bat' para Windows
+                bat 'mvn clean package -DskipTests'
             }
         }
 
         stage('Build Docker Image') {
             steps {
                 script {
+                    // Cambiar 'sh' por 'bat' si el entorno es Windows
                     dockerImage = docker.build("${DOCKER_IMAGE}:latest")
                 }
             }
@@ -23,8 +25,9 @@ pipeline {
         stage('Push to Docker Hub') {
             steps {
                 withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', usernameVariable: 'DOCKER_HUB_USER', passwordVariable: 'DOCKER_HUB_PASS')]) {
-                    sh "echo $DOCKER_HUB_PASS | docker login -u $DOCKER_HUB_USER --password-stdin"
-                    sh "docker push ${DOCKER_IMAGE}:latest"
+                    // Cambiar 'sh' por 'bat' para el login y push de Docker
+                    bat "echo $DOCKER_HUB_PASS | docker login -u $DOCKER_HUB_USER --password-stdin"
+                    bat "docker push ${DOCKER_IMAGE}:latest"
                 }
             }
         }
