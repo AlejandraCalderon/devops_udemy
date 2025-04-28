@@ -8,7 +8,7 @@ pipeline {
     environment {
         DOCKER_IMAGE = "aleja254/devops_udemy_billing"
         PROJECT_VERSION = "1.0.0"
-        PROJECT_DIR = "billing"  // Nuevo: directorio donde está el proyecto Maven
+        PROJECT_DIR = "billing"
     }
 
     stages {
@@ -27,11 +27,20 @@ pipeline {
 
         stage('Build JAR') {
             steps {
-                dir(env.PROJECT_DIR) {  // Cambia al directorio del proyecto
+                dir(env.PROJECT_DIR) {
                     bat 'mvn --version'
                     bat 'mvn clean package -DskipTests'
+                    
+                    // Guardar el jar como artifacts
                     archiveArtifacts artifacts: 'target/*.jar', fingerprint: true
                 }
+            }
+        }
+
+        stage('Export Artifact') {
+            steps {
+                echo '✔️ Artifacts listos para ser copiados en otros pipelines'
+                // Aquí no necesitas hacer más, archiveArtifacts ya guarda el jar
             }
         }
 
@@ -39,10 +48,7 @@ pipeline {
             steps {
                 script {
                     dir(env.PROJECT_DIR) {
-                        // Verifica que el JAR fue creado
                         bat 'dir target\\'
-                        
-                        // Construye la imagen Docker
                         dockerImage = docker.build("${env.DOCKER_IMAGE}:${env.PROJECT_VERSION}", "--build-arg JAR_FILE=target/*.jar .")
                     }
                 }
